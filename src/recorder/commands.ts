@@ -376,8 +376,15 @@ export function registerRecorderCommands() {
 
       const workspaceRoot = getActiveWorkspacePath();
       const file = getRelativePath(workspaceRoot, thread!.uri.path);
+      const line = thread.range.start.line + 1;
+
+      const customTitle = vscode.workspace
+        .getConfiguration("codetour")
+        .get("defaultStepTitle", null);
+      const title = customTitle || undefined;
 
       const step: CodeTourStep = {
+        title,
         file,
         description: reply.text
       };
@@ -404,10 +411,10 @@ export function registerRecorderCommands() {
           step.pattern = pattern;
         } else {
           // TODO: Try to get smarter about how to handle this.
-          step.line = thread.range.start.line + 1;
+          step.line = line;
         }
       } else {
-        step.line = thread.range.start.line + 1;
+        step.line = line;
       }
 
       store.activeTour!.step++;

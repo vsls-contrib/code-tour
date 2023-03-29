@@ -7,9 +7,15 @@ import { Uri, workspace } from "vscode";
 import { CONTENT_URI, FS_SCHEME } from "./constants";
 import { api } from "./git";
 import { CodeTour, CodeTourStep, store } from "./store";
+import { formatter } from "./utils/formatter";
+
+interface LabelCache {
+  contents?: string;
+  line?: number;
+}
 
 const HEADING_PATTERN = /^#+\s*(.*)/;
-export function getStepLabel(
+export async function getStepLabel(
   tour: CodeTour,
   stepNumber: number,
   includeStepNumber: boolean = true,
@@ -20,7 +26,19 @@ export function getStepLabel(
   const prefix = includeStepNumber ? `#${stepNumber + 1} - ` : "";
   let label = "";
   if (step.title) {
-    label = step.title;
+    const cache: LabelCache = {};
+    
+    label = await formatter(step.title, {
+      file: async () => step.file,
+      line: async () => getStepLine(tour, stepNumber, cache),
+      text: async () => {
+        const line = await getStepLine(tour, stepNumber, cache);
+        const contents = await getStepContents(tour, stepNumber, cache);
+        const lines = contents.split(/\r?\n/g);
+          
+        return lines[line - 1].trim();
+      }
+    });
   } else if (HEADING_PATTERN.test(step.description.trim())) {
     label = step.description.trim().match(HEADING_PATTERN)![1];
   } else if (step.markerTitle) {
@@ -32,6 +50,41 @@ export function getStepLabel(
   }
 
   return `${prefix}${label}`;
+}
+
+async function getStepLine(tour: CodeTour, stepNumber: number, cache: LabelCache): Promise<number> {
+  const step = tour.steps[stepNumber];
+  
+  if (step.line) {
+    return step.line;
+  } else if (cache.line) {
+    return cache.line;
+  } else if (step.pattern) {
+    const contents = await getStepContents(tour, stepNumber, cache);
+    const match = contents.match(new RegExp(step.pattern, "m"));
+    
+    if (match) {
+      const lines = contents.substring(0, match.index).split(/\r?\n/g);
+      
+      cache.line = lines.length;
+      
+      return cache.line;
+    }
+  }
+  
+  return 1;
+}
+
+async function getStepContents(tour: CodeTour, stepNumber: number, cache: LabelCache): Promise<string> {
+  if (typeof cache.contents === "undefined") {
+    const step = tour.steps[stepNumber];
+    const workspaceRoot = getWorkspaceUri(tour);
+    const stepFileUri = await getStepFileUri(step, workspaceRoot, tour.ref);
+    
+    cache.contents = await readUriContents(stepFileUri);
+  }
+  
+  return cache.contents;
 }
 
 export function getTourTitle(tour: CodeTour) {
